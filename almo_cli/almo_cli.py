@@ -1,39 +1,90 @@
 import argparse
-import yaml
-import logging  
+import logging
+import pathlib
 
+import almo
+import jinja2
+import yaml
+
+from almo_cli import utils
 from almo_cli.preview import PreviewRunner
 
-version_config = yaml.safe_load(open("almo_cli/version.yaml"))
-almo_cli_version = version_config["almo-cli"]
-almo_version = version_config["almo"]
-__version__ = almo_cli_version
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="almo-cli: A command line interface for ALMO")
+    parser = argparse.ArgumentParser(
+        description="almo-cli: A command line interface for ALMO"
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Common arguments for both 'preview' and 'run' commands
     common_parser = argparse.ArgumentParser(add_help=False)
-    common_parser.add_argument('-t', '--template', type=str, help="Path to the template file")
-    common_parser.add_argument('-s', '--style', type=str, help="Path to the style file")
-    common_parser.add_argument('--editortheme', type=str, help="Specify the editor theme")
+    common_parser.add_argument(
+        "-t", "--template", type=str, help="Path to the template file", default=None
+    )
+    common_parser.add_argument(
+        "-s", "--style", type=str, help="Path to the style file", default=None
+    )
+    common_parser.add_argument(
+        "--editor_theme",
+        type=str,
+        help="Specify the editor theme",
+        default="ace/theme/monokai",
+    )
+    common_parser.add_argument(
+        "--syntax_theme",
+        type=str,
+        help="Specify the syntax theme",
+        default="atom-one-dark",
+    )
+
+    common_parser.add_argument(
+        "--config", type=str, help="Path to the configuration file", default=None
+    )
+
+    common_parser.add_argument(
+        "-o", "--output", type=str, help="Path to the output file", default=None
+    )
 
     # 'preview' command
-    preview_parser = subparsers.add_parser('preview', parents=[common_parser], help="Preview the HTML")
-    preview_parser.add_argument('--config', type=str, help="Path to the configuration file")
-    preview_parser.add_argument('--port', help="Port for the preview server", type=int)
-    preview_parser.add_argument('--allow-sharedarraybuffer', action='store_true', help="Allow SharedArrayBuffer in the preview")
+    preview_parser = subparsers.add_parser(
+        "preview", parents=[common_parser], help="Preview the HTML"
+    )
+
+    preview_parser.add_argument(
+        "target",
+        type=str,
+        help="Path to the markdown file or directory to convert",
+    )
+
+    preview_parser.add_argument(
+        "--port", help="Port for the preview server", type=int, default=5500
+    )
+
+    preview_parser.add_argument(
+        "--allow-sharedarraybuffer",
+        action="store_true",
+        help="Allow SharedArrayBuffer in the preview",
+        default=False,
+    )
 
     # 'run' command
-    run_parser = subparsers.add_parser('run', parents=[common_parser], help="Run the conversion")
-    run_parser.add_argument('-o', '--output', type=str, help="Path to the output file")
-    run_parser.add_argument('--json', action='store_true', help="Output the intermediate representation in JSON")
-    run_parser.add_argument('--dot', action='store_true', help="Output the intermediate representation in DOT language")
+    run_parser = subparsers.add_parser(
+        "run", parents=[common_parser], help="Run the conversion"
+    )
+    run_parser.add_argument(
+        "target",
+        type=str,
+        help="Path to the markdown file or directory to convert",
+    )
 
     # 'version' argument
-    parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__} (ALMO {almo_version})')
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s 0.0.1 (ALMO {{almo.__version__}})",
+    )
 
     return parser.parse_args()
 
@@ -51,51 +102,123 @@ def fix_config(command_args: argparse.Namespace, config_from_file: dict) -> dict
     Returns:
         dict: The fixed configuration dictionary.
     """
-    for key, value in config_from_file.items():
-        if key in vars(command_args):
-            print(f"Warning: {key} is specified in both the configuration file and the command line arguments. Using the command line arguments.")
-        config_from_file.update(vars(command_args))
+    result = config_from_file.copy()
 
-    return config_from_file
+    # if command arg is not None, use it.
+    for key in command_args.__dict__.keys():
+        if command_args.__dict__[key] is not None:
+            result[key] = vars(command_args)[key]
+
+    # warn it.
+    for key in config_from_file.keys():
+        if command_args.__dict__[key] is not None:
+            logging.warning(
+                f"Warning: {key} is specified in both the configuration file and the command line arguments. Using the command line arguments."
+            )
+
+    return result
 
 
-def hook():
-    logging.info("File changed. Reloading...")
+def build_hook(
+    template_path: pathlib.Path,
+    style_path: pathlib.Path,
+    md_path: pathlib.Path,
+    editor_theme: str,
+    syntax_theme: str,
+    output_path: pathlib.Path,
+):
+    def hook():
+        md_content = md_path.read_text()
+
+        try:
+            front, content = utils.split_front_matter(md_content)
+        except ValueError:
+            logging.warning(
+                "No front matter found in the markdown file. Skipping conversion..."
+            )
+
+            return
+
+        try:
+            content_html = almo.md_to_html(
+                content.splitlines(),
+                {
+                    "editor_theme": editor_theme,
+                    "syntax_theme": syntax_theme,
+                },
+            )
+        except Exception as e:
+            logging.warning(f"Error in converting markdown to HTML: {e}")
+            logging.warning("Skipping conversion...")
+            return
+
+        front_dict = yaml.safe_load(front)
+
+        replace_dict = {
+            "content": content_html,
+            "editor_theme": editor_theme,
+            "syntax_theme": syntax_theme,
+        }
+
+        replace_dict.update(front_dict)
+
+        template = template_path.read_text()
+        style = style_path.read_text()
+
+        replace_dict["style"] = style
+
+        env = jinja2.Environment(loader=jinja2.BaseLoader())
+
+        template = env.from_string(template)
+
+        html = template.render(replace_dict)
+
+        # Write to index.html
+        output_path.write_text(html)
+
+    return hook
+
 
 def main():
-    logger = logging.getLogger(__name__)
     args = parse_args()
 
-    if args.command == 'preview':
-        # if config file is specified, load it and fix conflicts with command line arguments.
-        if args.config:
-            config = yaml.safe_load(open(args.config))
-            config = fix_config(args, config)
-        # if no config file is specified, use the command line arguments as the configuration.
-        else:
-            config = vars(args)
 
-        # remove `command` from the configuration
-        config.pop('command')
+    # if config file is specified, load it and fix conflicts with command line arguments.
+    if args.config:
+        config: dict = fix_config(args, yaml.safe_load(open(args.config)))
+    # if no config file is specified, use the command line arguments as the configuration.
+    else:
+        config: dict = vars(args)
 
+
+    hook = build_hook(
+        template_path=pathlib.Path(config["template"]),
+        style_path=pathlib.Path(config["style"]),
+        md_path=pathlib.Path(config["target"]),
+        editor_theme=config["editor_theme"],
+        syntax_theme=config["syntax_theme"],
+        output_path=pathlib.Path(config["output"]),
+    )
+
+    if args.command == "preview":
         # add targets to the template and style.
         # to add these files to the watch list, we can develop template or style with livepreview.
-        targets = []
-        if args.template:
-            targets.append(args.template)
-            
-        if args.style:
-            targets.append(args.style)        
-            
-        preview_runner = PreviewRunner(hook=hook, targets=targets)
+        targets = [
+            pathlib.Path(config["template"]),
+            pathlib.Path(config["style"]),
+            pathlib.Path(config["target"]),
+        ]
+
+        # Run first to generate the initial HTML file
+        hook()
+
+        preview_runner = PreviewRunner(
+            hook=hook,
+            port=args.port,
+            targets=targets,
+        )
+
         preview_runner.run()
 
-    elif args.command == 'run':
-        print(f"Run conversion with template {args.template}, style {args.style}, and editor theme {args.editortheme}")
-        if args.output:
-            print(f"Output file: {args.output}")
-        if args.json:
-            print("Output intermediate representation in JSON")
-        if args.dot:
-            print("Output intermediate representation in DOT language")
-
+    elif args.command == "run":
+        hook()
