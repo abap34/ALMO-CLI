@@ -8,8 +8,6 @@ almo_version = version_config['almo']
 print(
     f"ALMO CLI version: {almo_cli_version}\n"
     f"ALMO version: {almo_version}"
-
-
 )
 
 setup(
@@ -20,7 +18,8 @@ setup(
         'PyYAML',
         'argparse',
         'almo',
-        'livereload'
+        'livereload',
+        'jinja2'
     ],
     entry_points={
         'console_scripts': [
