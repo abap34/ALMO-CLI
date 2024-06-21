@@ -17,7 +17,7 @@ def parse_args():
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Common arguments for both 'preview' and 'run' commands
+    # Common arguments for both 'preview' and 'build' commands
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument(
         "-t", "--template", type=str, help="Path to the template file", default=None
@@ -68,11 +68,11 @@ def parse_args():
         default=False,
     )
 
-    # 'run' command
-    run_parser = subparsers.add_parser(
-        "run", parents=[common_parser], help="Run the conversion"
+    # 'build' command
+    build_parser = subparsers.add_parser(
+        "build", parents=[common_parser], help="build the conversion"
     )
-    run_parser.add_argument(
+    build_parser.add_argument(
         "target",
         type=str,
         help="Path to the markdown file or directory to convert",
@@ -220,5 +220,5 @@ def main():
 
         preview_runner.run()
 
-    elif args.command == "run":
+    elif args.command == "build":
         hook()
