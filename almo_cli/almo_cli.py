@@ -8,6 +8,7 @@ import yaml
 
 from almo_cli import utils
 from almo_cli.preview import PreviewRunner
+from almo_cli.runner import loader
 
 
 def parse_args():
@@ -83,7 +84,7 @@ def parse_args():
         "-v",
         "--version",
         action="version",
-        version=f"%(prog)s 0.0.1 (ALMO {{almo.__version__}})",
+        version=f"%(prog)s 0.0.1 (ALMO {almo.__version__})",
     )
 
     return parser.parse_args()
@@ -132,21 +133,21 @@ def build_hook(
 
         try:
             front, content = utils.split_front_matter(md_content)
-        except ValueError:
+        except ValueError as e:
             logging.warning(
-                "No front matter found in the markdown file. Skipping conversion..."
+                f"Error in splitting front matter: {e}. Skipping conversion..."
             )
 
             return
-
         try:
-            content_html = almo.md_to_html(
-                content.splitlines(),
-                {
-                    "editor_theme": editor_theme,
-                    "syntax_theme": syntax_theme,
-                },
-            )
+            ast = almo.parse(content)
+
+            need_pyodide = almo.required_pyodide(ast)
+
+            almo.move_footnote_to_end(ast)
+            
+            content_html = ast.to_html()
+
         except Exception as e:
             logging.warning(f"Error in converting markdown to HTML: {e}")
             logging.warning("Skipping conversion...")
@@ -159,6 +160,13 @@ def build_hook(
             "editor_theme": editor_theme,
             "syntax_theme": syntax_theme,
         }
+
+        if need_pyodide:
+            replace_dict["runner"] = (
+                '<script src="https://cdn.jsdelivr.net/pyodide/v0.24.0/full/pyodide.js"></script> \n <script>\n'
+                + loader
+                + "\n</script>"
+            )
 
         replace_dict.update(front_dict)
 
@@ -182,14 +190,12 @@ def build_hook(
 def main():
     args = parse_args()
 
-
     # if config file is specified, load it and fix conflicts with command line arguments.
     if args.config:
         config: dict = fix_config(args, yaml.safe_load(open(args.config)))
     # if no config file is specified, use the command line arguments as the configuration.
     else:
         config: dict = vars(args)
-
 
     hook = build_hook(
         template_path=pathlib.Path(config["template"]),
