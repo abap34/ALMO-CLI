@@ -10,6 +10,8 @@ print(
     f"ALMO version: {almo_version}"
 )
 
+long_description = open('README.md').read()
+
 setup(
     name='almo-cli',
     version=almo_cli_version,
@@ -26,4 +28,6 @@ setup(
             'almo-cli=almo_cli.almo_cli:main [cli]',
         ],
     },
+    long_description_content_type="text/markdown",
+    long_description=long_description,
 )
