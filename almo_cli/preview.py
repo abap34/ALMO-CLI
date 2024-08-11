@@ -1,6 +1,7 @@
 import logging
 import socket
 from pathlib import Path
+from typing import Callable
 
 import livereload
 
@@ -19,7 +20,8 @@ class PreviewRunner:
     
     DEFAULT_PORT = 35729
 
-    def __init__(self, hook: callable, port: int | None = None, targets: list[Path] = [], header_set: dict = {}):
+
+    def __init__(self, hook: Callable, port: int | None = None, targets: list[Path] = [], header_set: dict = {}):
         self._setup_logging()
 
         self.hook = hook
