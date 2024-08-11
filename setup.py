@@ -17,7 +17,7 @@ setup(
     install_requires=[
         'PyYAML',
         'argparse',
-        'almo',
+        'almo==' + almo_version,
         'livereload',
         'jinja2'
     ],
