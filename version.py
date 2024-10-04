@@ -4,7 +4,7 @@ with open("version.txt") as f:
     version = f.read().strip()
 
 version_config = yaml.safe_load(open("almo_cli/version.yaml"))
-version_config["almo"] = version
+version_config["almo-cli"] = version
 
 with open("almo_cli/version.yaml", "w") as f:
     yaml.dump(version_config, f)
